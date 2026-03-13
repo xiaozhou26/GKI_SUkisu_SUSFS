@@ -98,7 +98,7 @@ jobs:
         run: |
           mkdir -p ~/.cache/bazel
           ccache --version
-          ccache --max-size=2G
+          ccache --max-size=8G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
@@ -106,8 +106,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.kernelsu_variant }}-${{ inputs.use_zram }}
+          key: ccache-${{ runner.os }}-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-${{ inputs.kernelsu_variant }}-${{ inputs.use_zram }}
           restore-keys: |
+            ccache-${{ runner.os }}-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-
             ccache-${{ runner.os }}-${{ inputs.android_version }}-${{ inputs.kernel_version }}-
             ccache-${{ runner.os }}-
 
@@ -595,6 +596,16 @@ jobs:
           restore-keys: |
             bazel-${{ runner.os }}-
 
+      - name: 准备构建配置（一次性）
+        run: |
+          cd "$CONFIG"
+          # 替换 BUILD_SYSTEM_DLKM=1 为 BUILD_SYSTEM_DLKM=0
+          sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' common/build.config.gki.aarch64
+          # 删除 MODULES_ORDER=android/gki_aarch64_modules 行
+          sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' common/build.config.gki.aarch64
+          # 删除 KMI_SYMBOL_LIST_STRICT_MODE 行
+          sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' common/build.config.gki.aarch64
+
       - name: Build with retry
         uses: nick-fields/retry@v3
         with:
@@ -605,20 +616,12 @@ jobs:
             set -e
             set -x
             cd "$CONFIG"
-            # 替换 BUILD_SYSTEM_DLKM=1 为 BUILD_SYSTEM_DLKM=0
-            sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' common/build.config.gki.aarch64
-
-            # 删除 MODULES_ORDER=android/gki_aarch64_modules 行
-            sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' common/build.config.gki.aarch64
-
-            sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' common/build.config.gki.aarch64
-
             echo "Building the kernel..."
             ccache -z
             if [ -f "build/build.sh" ]; then
               MAKEFLAGS="-j$(( $(nproc) + 1 ))" LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
             else
-              tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin --jobs=$(nproc) --local_cpu_resources=$(nproc) --local_ram_resources=HOST_RAM*.8 //common:kernel_aarch64_dist || exit 1
+              tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin --jobs=$(( $(nproc) + 2 )) --local_cpu_resources=$(nproc) --local_ram_resources=HOST_RAM*.9 //common:kernel_aarch64_dist || exit 1
             fi
             ccache -s
             
