@@ -341,6 +341,16 @@ jobs:
           else
             patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
           fi
+      - name: 修复 cred 未初始化
+        run: |
+          # 自动为 drivers/kernelsu/app_profile.c 里的 cred 变量初始化为 NULL
+          CFILE="${{ github.workspace }}/android12-5.10-236/common/drivers/kernelsu/app_profile.c"
+          if [ -f "$CFILE" ]; then
+            sed -i 's/struct cred \*cred;/struct cred *cred = NULL;/' "$CFILE"
+            echo "已自动修复 cred 未初始化"
+          else
+            echo "文件 $CFILE 不存在，跳过自动修复"
+          fi
 
       - name: 一些修复补丁
         run: |
